@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentence Reader</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system;
+  background: #f1f5f9;
+}
+
+.header {
+  padding: 12px;
+  background: #2563eb;
+  color: white;
+  text-align: center;
+  font-size: 16px;
+}
+
+.top-controls {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: #e2e8f0;
+}
+
+select, input {
+  flex: 1;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
+.progress {
+  text-align: center;
+  font-size: 13px;
+  padding: 5px;
+}
+
+.list {
+  padding: 10px;
+  padding-bottom: 110px;
+}
+
+.item {
+  background: white;
+  margin-bottom: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.active {
+  background: #dbeafe;
+}
+
+.controls {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  background: white;
+  padding: 8px;
+  border-top: 1px solid #ddd;
+}
+
+button {
+  flex: 1;
+  margin: 4px;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #2563eb;
+  color: white;
+}
+
+.secondary {
+  background: #64748b;
+}
+
+.resume {
+  background: #16a34a;
+}
+</style>
+</head>
+<body>
+
+<div class="header">Sentence Reader</div>
+
+<div class="top-controls">
+  <select id="voiceSelect"></select>
+  <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1">
+</div>
+
+<div class="progress" id="progress"></div>
+
+<div class="list" id="list"></div>
+
+<div class="controls">
+  <button class="secondary" onclick="prevChunk()">⬅</button>
+  <button onclick="playChunk()">▶</button>
+  <button class="resume" onclick="resumeReading()">Resume</button>
+  <button class="secondary" onclick="stopReading()">⏹</button>
+  <button onclick="nextChunk()">➡</button>
+</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbzRzlvwf-ypKlqa6iSUtB4p136ibOPINTgRESF9bH0VGMCsh7VVEAmfjoks1a_b-uEcAQ/exec";
+
+let sentences = [];
+let currentIndex = 0;
+const CHUNK_SIZE = 200;
+
+let isStopped = false;
+let voices = [];
+let selectedVoice = null;
+
+// Load saved exact position
+let savedPosition = parseInt(localStorage.getItem("readerIndex") || 0);
+currentIndex = Math.floor(savedPosition / CHUNK_SIZE) * CHUNK_SIZE;
+
+// Voice load
+speechSynthesis.onvoiceschanged = () => {
+  voices = speechSynthesis.getVoices();
+  populateVoices();
+};
+
+function populateVoices() {
+  const select = document.getElementById("voiceSelect");
+  select.innerHTML = "";
+
+  voices.forEach((v, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = v.name + " (" + v.lang + ")";
+    select.appendChild(opt);
+  });
+
+  const indianIndex = voices.findIndex(v =>
+    v.lang === "en-IN" || v.name.toLowerCase().includes("india")
+  );
+
+  if (indianIndex >= 0) {
+    select.value = indianIndex;
+    selectedVoice = voices[indianIndex];
+  }
+
+  select.onchange = () => {
+    selectedVoice = voices[select.value];
+  };
+}
+
+// Fetch
+async function loadData() {
+  const res = await fetch(API_URL);
+  sentences = await res.json();
+  render();
+}
+
+// Render
+function render() {
+  const list = document.getElementById("list");
+  const progress = document.getElementById("progress");
+
+  list.innerHTML = "";
+
+  const chunk = sentences.slice(currentIndex, currentIndex + CHUNK_SIZE);
+
+  chunk.forEach((text, i) => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.id = "item-" + i;
+    div.textContent = (currentIndex + i + 1) + ". " + text;
+    list.appendChild(div);
+  });
+
+  progress.textContent =
+    (currentIndex + 1) + " - " +
+    Math.min(currentIndex + CHUNK_SIZE, sentences.length) +
+    " / " + sentences.length;
+}
+
+// Highlight + save
+function highlight(i) {
+  document.querySelectorAll(".item").forEach(el => el.classList.remove("active"));
+
+  const el = document.getElementById("item-" + i);
+  if (el) {
+    el.classList.add("active");
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  savedPosition = currentIndex + i;
+  localStorage.setItem("readerIndex", savedPosition);
+}
+
+// Controls
+function nextChunk() {
+  stopReading();
+  if (currentIndex + CHUNK_SIZE < sentences.length) {
+    currentIndex += CHUNK_SIZE;
+    render();
+  }
+}
+
+function prevChunk() {
+  stopReading();
+  if (currentIndex - CHUNK_SIZE >= 0) {
+    currentIndex -= CHUNK_SIZE;
+    render();
+  }
+}
+
+function stopReading() {
+  isStopped = true;
+  speechSynthesis.cancel();
+}
+
+// Play current chunk
+function playChunk(startIndex = 0) {
+  isStopped = false;
+
+  const speed = parseFloat(document.getElementById("speed").value);
+  const chunk = sentences.slice(currentIndex, currentIndex + CHUNK_SIZE);
+
+  function speak(i) {
+    if (isStopped) return;
+
+    // End of chunk → auto next
+    if (i >= chunk.length) {
+      if (currentIndex + CHUNK_SIZE < sentences.length) {
+        currentIndex += CHUNK_SIZE;
+        render();
+        playChunk(0); // 🔥 auto next chunk
+      }
+      return;
+    }
+
+    highlight(i);
+
+    const utterance = new SpeechSynthesisUtterance(chunk[i]);
+
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = speed;
+
+    utterance.onend = () => speak(i + 1);
+
+    speechSynthesis.speak(utterance);
+  }
+
+  speak(startIndex);
+}
+
+// Resume exactly
+function resumeReading() {
+  stopReading();
+
+  savedPosition = parseInt(localStorage.getItem("readerIndex") || 0);
+
+  currentIndex = Math.floor(savedPosition / CHUNK_SIZE) * CHUNK_SIZE;
+  render();
+
+  const startIndex = savedPosition % CHUNK_SIZE;
+
+  setTimeout(() => {
+    playChunk(startIndex);
+  }, 300);
+}
+
+// Init
+loadData();
+</script>
+
+</body>
+</html>
