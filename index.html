@@ -18,43 +18,58 @@ body {
   color: white;
   text-align: center;
   font-size: 16px;
+  font-weight: 600;
 }
 
 .top-controls {
-  display: flex;
-  gap: 6px;
-  padding: 8px;
+  padding: 10px 12px;
   background: #e2e8f0;
 }
 
-select, input {
+.speed-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speed-label {
+  font-size: 14px;
+  min-width: 55px;
+  color: #111827;
+  font-weight: 600;
+}
+
+input[type="range"] {
   flex: 1;
-  padding: 6px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
 }
 
 .progress {
   text-align: center;
-  font-size: 13px;
-  padding: 5px;
+  font-size: 14px;
+  padding: 8px;
+  color: #334155;
+  font-weight: 500;
 }
 
 .list {
-  padding: 10px;
-  padding-bottom: 110px;
+  padding: 12px;
+  padding-bottom: 95px;
 }
 
 .item {
   background: white;
-  margin-bottom: 6px;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 14px;
+  margin-bottom: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 18px; /* increased text size */
+  line-height: 1.7;
+  color: #111827;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .active {
   background: #dbeafe;
+  border: 2px solid #60a5fa;
 }
 
 .controls {
@@ -62,19 +77,22 @@ select, input {
   bottom: 0;
   width: 100%;
   display: flex;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
   background: white;
-  padding: 8px;
+  padding: 8px 6px;
   border-top: 1px solid #ddd;
+  box-sizing: border-box;
 }
 
 button {
   flex: 1;
-  margin: 4px;
-  padding: 10px;
+  min-width: 0;
+  padding: 10px 4px;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 10px;
+  font-size: 12px; /* smaller buttons */
+  font-weight: 600;
   background: #2563eb;
   color: white;
 }
@@ -93,8 +111,10 @@ button {
 <div class="header">Sentence Reader</div>
 
 <div class="top-controls">
-  <select id="voiceSelect"></select>
-  <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1">
+  <div class="speed-wrap">
+    <div class="speed-label">Speed</div>
+    <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1">
+  </div>
 </div>
 
 <div class="progress" id="progress"></div>
@@ -124,36 +144,17 @@ let selectedVoice = null;
 let savedPosition = parseInt(localStorage.getItem("readerIndex") || 0);
 currentIndex = Math.floor(savedPosition / CHUNK_SIZE) * CHUNK_SIZE;
 
-// Voice load
+// Auto select voice
 speechSynthesis.onvoiceschanged = () => {
   voices = speechSynthesis.getVoices();
-  populateVoices();
-};
 
-function populateVoices() {
-  const select = document.getElementById("voiceSelect");
-  select.innerHTML = "";
-
-  voices.forEach((v, i) => {
-    const opt = document.createElement("option");
-    opt.value = i;
-    opt.textContent = v.name + " (" + v.lang + ")";
-    select.appendChild(opt);
-  });
-
-  const indianIndex = voices.findIndex(v =>
-    v.lang === "en-IN" || v.name.toLowerCase().includes("india")
+  const indianVoice = voices.find(v =>
+    v.lang === "en-IN" ||
+    v.name.toLowerCase().includes("india")
   );
 
-  if (indianIndex >= 0) {
-    select.value = indianIndex;
-    selectedVoice = voices[indianIndex];
-  }
-
-  select.onchange = () => {
-    selectedVoice = voices[select.value];
-  };
-}
+  selectedVoice = indianVoice || voices[0];
+};
 
 // Fetch
 async function loadData() {
@@ -190,9 +191,14 @@ function highlight(i) {
   document.querySelectorAll(".item").forEach(el => el.classList.remove("active"));
 
   const el = document.getElementById("item-" + i);
+
   if (el) {
     el.classList.add("active");
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    el.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
   }
 
   savedPosition = currentIndex + i;
@@ -202,6 +208,7 @@ function highlight(i) {
 // Controls
 function nextChunk() {
   stopReading();
+
   if (currentIndex + CHUNK_SIZE < sentences.length) {
     currentIndex += CHUNK_SIZE;
     render();
@@ -210,6 +217,7 @@ function nextChunk() {
 
 function prevChunk() {
   stopReading();
+
   if (currentIndex - CHUNK_SIZE >= 0) {
     currentIndex -= CHUNK_SIZE;
     render();
@@ -226,18 +234,24 @@ function playChunk(startIndex = 0) {
   isStopped = false;
 
   const speed = parseFloat(document.getElementById("speed").value);
-  const chunk = sentences.slice(currentIndex, currentIndex + CHUNK_SIZE);
+
+  const chunk = sentences.slice(
+    currentIndex,
+    currentIndex + CHUNK_SIZE
+  );
 
   function speak(i) {
     if (isStopped) return;
 
-    // End of chunk → auto next
+    // Auto next chunk
     if (i >= chunk.length) {
+
       if (currentIndex + CHUNK_SIZE < sentences.length) {
         currentIndex += CHUNK_SIZE;
         render();
-        playChunk(0); // 🔥 auto next chunk
+        playChunk(0);
       }
+
       return;
     }
 
@@ -245,7 +259,10 @@ function playChunk(startIndex = 0) {
 
     const utterance = new SpeechSynthesisUtterance(chunk[i]);
 
-    if (selectedVoice) utterance.voice = selectedVoice;
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+    }
+
     utterance.rate = speed;
 
     utterance.onend = () => speak(i + 1);
@@ -260,9 +277,13 @@ function playChunk(startIndex = 0) {
 function resumeReading() {
   stopReading();
 
-  savedPosition = parseInt(localStorage.getItem("readerIndex") || 0);
+  savedPosition = parseInt(
+    localStorage.getItem("readerIndex") || 0
+  );
 
-  currentIndex = Math.floor(savedPosition / CHUNK_SIZE) * CHUNK_SIZE;
+  currentIndex =
+    Math.floor(savedPosition / CHUNK_SIZE) * CHUNK_SIZE;
+
   render();
 
   const startIndex = savedPosition % CHUNK_SIZE;
